@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: jr-audio-control
+    runtime: python
+    plan: free
+    region: ohio
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: jr-audio-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: APP_ENV
+        value: production
+
+databases:
+  - name: jr-audio-db
+    databaseName: jraudio_control
+    plan: free
+    region: ohio
