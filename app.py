@@ -1,5 +1,8 @@
 import os
 import secrets
+from urllib.parse import urlparse
+
+import yt_dlp
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -127,6 +130,82 @@ def require_csrf(request: Request):
     if not sent or not expected or not secrets.compare_digest(sent, expected):
         raise HTTPException(status_code=403, detail="Token CSRF inválido")
     return True
+
+
+
+ONLINE_SOURCE_HOSTS = {
+    "youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be",
+    "soundcloud.com", "www.soundcloud.com",
+    "vimeo.com", "www.vimeo.com",
+    "tiktok.com", "www.tiktok.com",
+    "instagram.com", "www.instagram.com",
+    "facebook.com", "www.facebook.com", "fb.watch",
+}
+
+
+def validate_media_url(value: str) -> str:
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not host or not any(
+        host == allowed or host.endswith("." + allowed)
+        for allowed in ONLINE_SOURCE_HOSTS
+    ):
+        raise HTTPException(status_code=400, detail="Fuente no admitida. Usa un enlace HTTPS público de una plataforma compatible.")
+    return value
+
+
+@app.get("/api/v1/search")
+def search_music(q: str):
+    query = q.strip()
+    if len(query) < 2 or len(query) > 120:
+        raise HTTPException(status_code=422, detail="Escribe entre 2 y 120 caracteres.")
+    options = {"quiet": True, "no_warnings": True, "skip_download": True, "extract_flat": True, "noplaylist": True, "socket_timeout": 12}
+    try:
+        with yt_dlp.YoutubeDL(options) as ydl:
+            data = ydl.extract_info("ytsearch8:" + query, download=False)
+        entries = []
+        for item in (data or {}).get("entries") or []:
+            if not item:
+                continue
+            webpage = item.get("webpage_url") or item.get("url") or ""
+            if not webpage.startswith("https://"):
+                continue
+            entries.append({
+                "id": str(item.get("id") or ""),
+                "title": str(item.get("title") or "Sin título")[:240],
+                "artist": str(item.get("uploader") or item.get("channel") or "Artista desconocido")[:160],
+                "duration": item.get("duration"),
+                "thumbnail": item.get("thumbnail"),
+                "url": webpage,
+                "source": str(item.get("extractor_key") or "Online")
+            })
+        return {"query": query, "count": len(entries), "results": entries}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="No se pudo buscar ahora. La fuente puede estar temporalmente limitada.") from exc
+
+
+@app.get("/api/v1/resolve")
+def resolve_music(url: str):
+    media_url = validate_media_url(url)
+    options = {"format": "bestaudio/best", "quiet": True, "no_warnings": True, "noplaylist": True, "skip_download": True, "socket_timeout": 15}
+    try:
+        with yt_dlp.YoutubeDL(options) as ydl:
+            info = ydl.extract_info(media_url, download=False)
+        if not info or not info.get("url"):
+            raise HTTPException(status_code=502, detail="La fuente no entregó un flujo de audio reproducible.")
+        return {
+            "url": info["url"],
+            "title": str(info.get("title") or "Audio")[:240],
+            "artist": str(info.get("artist") or info.get("uploader") or info.get("channel") or "")[:160],
+            "duration": info.get("duration"),
+            "source": str(info.get("extractor_key") or "Online")
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="No se pudo preparar la reproducción. Puede que el contenido no esté disponible.") from exc
 
 
 @app.get("/healthz")
