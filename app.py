@@ -159,7 +159,7 @@ def search_music(q: str):
     query = q.strip()
     if len(query) < 2 or len(query) > 120:
         raise HTTPException(status_code=422, detail="Escribe entre 2 y 120 caracteres.")
-    options = {"quiet": True, "no_warnings": True, "skip_download": True, "extract_flat": True, "noplaylist": True, "socket_timeout": 12}
+    options = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True, "socket_timeout": 12}
     try:
         with yt_dlp.YoutubeDL(options) as ydl:
             data = ydl.extract_info("ytsearch8:" + query, download=False)
